@@ -61,13 +61,17 @@ NeteasePlayer.prototype.debugPlaylist = function() {
     console.log('player.status');
     console.log(this.player.status);
     console.log('isPlaying?');
-    console.log(utils.isPlaying(this.player));
-    console.log('isStopped?');
-    console.log(utils.isStopped(this.player));
+    console.log(this.isPlaying());
 }
 
 NeteasePlayer.prototype.init = function(callback) {
     return this.showMainMenu();
+}
+
+NeteasePlayer.prototype.isPlaying = function() {
+    if (typeof(this.player) === 'undefined') return false;
+    return (this.player.status === 'playing'
+    || (this.player.status === 'stopped' && this.player.playing !== null));
 }
 
 /**
@@ -128,21 +132,6 @@ NeteasePlayer.prototype.addPlaylist = function(songId, text, url) {
     });
 }
 
-/**
- * Update song list item
- * @param  {int} songId
- * @param  {string} state  Appdending text
- */
-NeteasePlayer.prototype.updateSongList = function(songId, state) {
-    var self = this;
-    if (self.state === 'mainMenu') return;
-    var menuItem = self.songs[songId];
-    var item = self.menu.get(songId);
-    if (!item) return;
-    item.label = menuItem + c.yellow(' ' + state);
-    self.menu.draw();
-}
-
 
 NeteasePlayer.prototype.showPlaylistMenu = function() {
     var self = this;
@@ -158,8 +147,10 @@ NeteasePlayer.prototype.showPlaylistMenu = function() {
     // refill bullets
     self.player.list.forEach(function(item) {
         self.menu.add(item.songId, item.text);
+        if (self.isPlaying() && self.player.playing.songId === item.songId) {
+            self.menu.update(item.songId, c.yellow('Playing'));
+        };
     });
-    self.updatePlayingState();
     self.menu.draw();
 }
 
@@ -179,29 +170,16 @@ NeteasePlayer.prototype.showSonglistMenu = function() {
     };
     for (var songId in self.songs) {
         self.menu.add(songId, self.songs[songId]);
+        if (self.isPlaying() && self.player.playing.songId === songId) {
+            self.menu.update(songId, c.yellow('Playing'));
+        };
     };
     // deal with re-enter problem
     if (self.state === 'searchSongs') {
         self.menu.start();
     };
     self.state = 'songlistMenu';
-    self.updatePlayingState();
     self.menu.draw();
-}
-
-NeteasePlayer.prototype.updatePlayingState = function() {
-    var self = this;
-    if (self.state === 'mainMenu') return;
-    // redraw the list, have to deal with flags
-    // well, bad algorithm, but node.js is fast ...
-    for (var songId in self.songs) {
-        // if the current playing songId
-        if (self.player.status === 'playing' && songId === self.player.playing['songId']) {
-            self.updateSongList(songId, 'Playing');
-        } else {
-            self.updateSongList(songId, '');
-        };
-    }
 }
 
 /**
@@ -210,7 +188,7 @@ NeteasePlayer.prototype.updatePlayingState = function() {
  */
 NeteasePlayer.prototype.addToList = function(songId) {
     var self = this;;
-    if (songId === 'searchSongs') return;
+    if (songId === 'searchSongs' || songId === 'searchArtists') return;
     if (self.isInPlaylist(songId)) return;
     utils.log('Adding ' + self.songs[songId] + ' ...');
     sdk.songDetail(songId, function(data) {
@@ -266,7 +244,7 @@ NeteasePlayer.prototype.forcePlay = function(songId) {
 NeteasePlayer.prototype.play = function() {
     var self = this;
     if (typeof(self.player) === 'undefined') return;
-    if (self.player !== null && utils.isPlaying(self.player)) return;
+    if (self.player !== null && self.isPlaying()) return;
 
     // if something in the playlist, continue playing from previous one
     if (typeof(self.player.stopAt) !== 'undefined') {
@@ -277,16 +255,17 @@ NeteasePlayer.prototype.play = function() {
     };
 
 
-    self.player.on('playing', function(playingItem) {
-        var playingSongId = playingItem['songId'];
-        self.updateSongList(playingSongId, 'Playing');
-        self.setBarText('Now playing:', self.songs[playingSongId]);
+    self.player.on('playing', function(item) {
+        self.menu.update(item.songId, c.yellow('Playing'));
+        self.player.stopAt = null;
+        self.setBarText('Now playing:', item.text);
         self.menu.draw();
     });
 
     self.player.on('playend', function(item) {
-        var playedSongId = self.player.playing['songId'];
-        self.updateSongList(playedSongId, '');
+        self.player.playing = null;
+        self.player.stopAt = item;
+        self.menu.update(item.songId, '');
         self.setBarText('', '');
         self.menu.draw();
     });
@@ -303,7 +282,7 @@ NeteasePlayer.prototype.play = function() {
 NeteasePlayer.prototype.playNext = function() {
     var self = this;
     // if not playing, do nothing
-    if (utils.isStopped(self.player)) return false;
+    if (!self.isPlaying()) return false;
     // why i get 'stopped' when call next() twice??
     // black maggic to tackle this
     var playing = self.player.playing,
@@ -315,12 +294,12 @@ NeteasePlayer.prototype.playNext = function() {
     }
     // play next one
     self.player.stop();
+    self.menu.update(playing.songId, '');
     self.player.status = 'playing';
     self.player.playing = next;
     self.player.stopAt = null;
     self.player.play(null, list.slice(next._id));
-
-    return self.updatePlayingState();
+    self.menu.update(next.songId, c.yellow('Playing'));
 }
 
 /**
@@ -328,13 +307,13 @@ NeteasePlayer.prototype.playNext = function() {
  */
 NeteasePlayer.prototype.stopPlaying = function() {
     var self = this;
-    if (utils.isStopped(self.player)) return false;
+    if (!self.isPlaying()) return false;
     // set up another object
     self.player.stopAt = self.player.playing;
     self.player.playing = null;
     self.player.stop();
     self.player.status = 'stopped';
-    self.updatePlayingState();
+    self.menu.update(self.player.stopAt.songId, '');
     self.setBarText('', '');
     return self.menu.draw();
 }
@@ -343,13 +322,10 @@ NeteasePlayer.prototype.stopPlaying = function() {
  * Toggle play state
  */
 NeteasePlayer.prototype.togglePlaying = function() {
-    if (utils.isPlaying(this.player)) {
+    if (this.isPlaying()) {
         return this.stopPlaying();
-    } else if(utils.isStopped(this.player)) {
-        return this.play();
     };
-    // shouldn't reach here, right?
-    return false;
+    return this.play();
 }
 
 /**
