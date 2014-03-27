@@ -15,6 +15,8 @@ Written in `Node.js`
 * colorful
 * prompt
 * player
+* term-canvas
+* keypress
 
 ### Run
 `$./bin/cli`
