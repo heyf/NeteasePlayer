@@ -4,7 +4,8 @@
  */
 
 var request = require('request'),
-    color = require('colorful');
+    c = require('colorful'),
+    utils = require('./utils');
 
 exports.songDetail = function(songId, callback) {
     var url = 'http://music.163.com/api/song/detail?id=' + songId + '&ids=%5B' + songId + '%5D';
@@ -15,13 +16,88 @@ exports.songDetail = function(songId, callback) {
         }
     }, function(err, res, body) {
         if (!err && res.statusCode == 200) {
-            return callback(JSON.parse(body)['songs']);
+            return callback(JSON.parse(body).songs);
         };
         return null;
     });
 };
 
-exports.searchArtist = function(keyword, callback) {
+exports.artistDetail = function(artistId, limit, callback) {
+    var url = 'http://music.163.com/api/artist/albums/' + artistId + '?limit=' + limit;
+    request.get({
+        url: url,
+        headers: {
+            Referer: 'http://music.163.com/'
+        }
+    }, function(err, res, body) {
+        if (!err && res.statusCode == 200) {
+            var result = {};
+            var jsonData = JSON.parse(body).hotAlbums;
+            jsonData.forEach(function(item) {
+                var text = utils.formatAlbum(item);
+                result[item.id] = text;
+            });
+            return callback(result);
+        };
+        return null;
+    });
+
+};
+
+exports.albumDetail = function(albumId, callback) {
+    var url = 'http://music.163.com/api/album/' + albumId;
+    request.get({
+        url: url,
+        headers: {
+            Referer: 'http://music.163.com/'
+        }
+    }, function(err, res, body) {
+        if (!err && res.statusCode == 200) {
+            var result = {};
+            var jsonData = JSON.parse(body).album.songs;
+            jsonData.forEach(function(item) {
+                var text = utils.formatSongTitle(item);
+                result[item.id] = text;
+            });
+            return callback(result);
+        };
+        return null;
+    });
+};
+
+exports.searchAlbums = function(keyword, limit, callback) {
+    var url = 'http://music.163.com/api/search/get/web';
+    request.post({
+        url: url,
+        headers: {
+            Referer: 'http://music.163.com/'
+        },
+        form: {
+            s: keyword,
+            type: 10,
+            limit: limit,
+            total: 'true',
+            offset: 0,
+        }
+    }, function(err, res, body) {
+        if (!err && res.statusCode == 200) {
+            var result = {};
+            var jsonData = JSON.parse(body).result.albums;
+            if (jsonData === undefined || jsonData.length < 1) {
+                return callback(jsonData);
+            };
+            jsonData.forEach(function(item) {
+                var text = utils.formatAlbum(item);
+                result[item.id] = text;
+            });
+            return callback(result);
+        };
+        return null;
+    });
+}
+
+
+exports.searchArtists = function(keyword, limit, callback) {
     var url = 'http://music.163.com/api/search/get/web';
     request.post({
         url: url,
@@ -31,27 +107,30 @@ exports.searchArtist = function(keyword, callback) {
         form: {
             s: keyword,
             type: 100,
-            limit: 10,
+            limit: limit,
             total: 'true',
             offset: 0,
         }
     }, function(err, res, body) {
         if (!err && res.statusCode == 200) {
-            return callback(JSON.parse(body)['result']['artists']);
+            var result = {};
+            var jsonData = JSON.parse(body).result.artists;
+            if (jsonData === undefined || jsonData.length < 1) {
+                return callback(jsonData);
+            };
+            jsonData.forEach(function(item) {
+                var text = utils.formatArtist(item);
+                result[item.id] = text;
+            });
+            return callback(result);
         };
         return null;
     });
+
 }
 
 exports.searchSongs = function(keyword, limit, callback) {
     var url = 'http://music.163.com/api/search/get/web';
-    var num = 10;
-    var cb = arguments[1];
-    // limit is optional, the default value is 10
-    if (arguments.length == 3) {
-        num = arguments[1];
-        cb = arguments[2];
-    };
     request.post({
         url: url,
         headers: {
@@ -60,24 +139,22 @@ exports.searchSongs = function(keyword, limit, callback) {
         form: {
             s: keyword,
             type: 1,
-            limit: num,
+            limit: limit,
             total: 'true',
             offset: 0,
         }
     }, function(err, res, body) {
         if (!err && res.statusCode == 200) {
             var result = {};
-            var jsonData = JSON.parse(body)['result']['songs'];
-            if (jsonData.length < 1) {
-                return cb(result);
+            var jsonData = JSON.parse(body).result.songs;
+            if (jsonData === undefined || jsonData.length < 1) {
+                return callback(result);
             };
-            jsonData.forEach(function(item){
-                var text = color.green(item['name']);
-                text += color.grey(' [' + item['album']['name'] + ']');
-                text += ' - ' + item['artists'][0]['name'];
-                result[item['id']] = text;
+            jsonData.forEach(function(item) {
+                var text = utils.formatSongTitle(item);
+                result[item.id] = text;
             });
-            return cb(result);
+            return callback(result);
         };
         return null;
     });
@@ -94,17 +171,17 @@ exports.lyricInfo = function(songId, callback) {
         if (!err && res.statusCode == 200) {
             return callback(JSON.parse(body));
         };
-        return null;
+        return callback(null);
     });
 }
 
-exports.lyricText = function(songId, callback) {
+exports.getLyric = function(songId, callback) {
     this.lyricInfo(songId, function(data) {
         if ('lyric' in data) {
-            var pattern = /\[[^\]].*?\]/g;
-            var text = data['lyric'].replace(pattern, '');
-            return callback(text);
+            // var pattern = /\[[^\]].*?\]/g;
+            // var text = data['lyric'].replace(pattern, '');
+            return callback(data.lyric);
         };
-        return null;
+        return callback(null);
     });
 }
